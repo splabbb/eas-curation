@@ -25,7 +25,7 @@ class FeatureExtractor:
         self.model_cache_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Initialized FeatureExtractor with cache at {self.model_cache_dir}")
-        self.analyzer = VisionAnalyzer(model_name=model_name, device=device, threshold=threshold)
+        self.analyzer = VisionAnalyzer(model_name=model_name, threshold=threshold)
 
     def get_embeddings(self, image_path: Path) -> np.ndarray:
         """Get embeddings, using cache if available."""
