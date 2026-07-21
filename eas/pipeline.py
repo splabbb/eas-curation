@@ -107,13 +107,12 @@ class ImageCurationPipeline:
 
         results_data = [
             {
-                "path": r.path,
-                "score": float(r.score),
-                "passed": r.passed,
+                "path": str(result.path),
+                "score": float(result.score),
+                "passed": bool(result.passed),
             }
-            for r in results
+            for result in results
         ]
-
         results_file = output_path / "results.json"
         with open(results_file, "w") as f:
             json.dump(results_data, f, indent=2)
