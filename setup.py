@@ -8,7 +8,7 @@ setup(
     python_requires=">=3.10",
     install_requires=[
         "torch>=2.0.0,<2.4",
-        "transformers>=4.30.0",
+        "transformers>=4.30.0,<5.0",
         "open-clip-torch>=2.0.0",
         "tiktoken>=0.4.0",
         "matplotlib>=3.7.0",
