@@ -1,163 +1,121 @@
-"""Main image curation pipeline."""
+"""Main image-curation pipeline."""
 
-import logging
+from __future__ import annotations
+
 import json
+import logging
+import shutil
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import List, Optional, NamedTuple
-from PIL import Image
-import numpy as np
-from eas.vision import VisionAnalyzer
-from eas.cache import EmbeddingCache
+from typing import Any
+
+from PIL import Image, ImageOps
+
+from eas.vision import QualityMetrics, VisionAnalyzer
 
 logger = logging.getLogger(__name__)
 
 
-class ImageResult(NamedTuple):
-    """Result for a curated image."""
+@dataclass(frozen=True)
+class ImageResult:
+    """JSON-safe result for one curated image."""
+
     path: str
     score: float
     passed: bool
+    metrics: QualityMetrics
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe representation."""
+        data = asdict(self)
+        data["path"] = str(self.path)
+        data["score"] = float(self.score)
+        data["passed"] = bool(self.passed)
+        data["metrics"] = self.metrics.to_dict()
+        return data
 
 
 class ImageCurationPipeline:
-    """Main pipeline for image curation."""
+    """Discover, score, rank, and export images."""
 
-    SUPPORTED_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+    SUPPORTED_FORMATS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 
-    def __init__(self, config: dict):
-        """Initialize pipeline.
-        
-        Args:
-            config: Configuration dictionary
-        """
-        self.config = config
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.config = dict(config)
+        self.top_n = int(config.get("top_n", 100))
+        if self.top_n < 1:
+            raise ValueError("top_n must be at least 1")
         self.analyzer = VisionAnalyzer(
-            model_name=config.get("model_name", "ViT-B/32"),
-            threshold=config.get("threshold", 0.5),
+            model_name=str(config.get("model_name", "ViT-B/32")),
+            threshold=float(config.get("threshold", 0.5)),
         )
-        self.cache = EmbeddingCache(config.get("cache_dir", "./.eas_cache"), self.analyzer)
-        self.top_n = config.get("top_n", 100)
 
-    def discover_images(self, input_dir: str) -> List[Path]:
-        """Discover images in directory.
-        
-        Args:
-            input_dir: Input directory path
-            
-        Returns:
-            List of image paths
-        """
-        input_path = Path(input_dir)
-        if not input_path.exists():
-            logger.error(f"Input directory not found: {input_dir}")
-            return []
-
-        images = []
-        for ext in self.SUPPORTED_FORMATS:
-            images.extend(input_path.glob(f"**/*{ext}"))
-            images.extend(input_path.glob(f"**/*{ext.upper()}"))
-
-        logger.info(f"Found {len(images)} images in {input_dir}")
+    def discover_images(self, input_dir: str) -> list[Path]:
+        """Recursively discover supported images in deterministic order."""
+        root = Path(input_dir).expanduser().resolve()
+        if not root.is_dir():
+            raise NotADirectoryError(f"Input directory not found: {root}")
+        images = sorted(
+            (path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in self.SUPPORTED_FORMATS),
+            key=lambda path: str(path).casefold(),
+        )
+        logger.info("Found %d images in %s", len(images), root)
         return images
 
-    def process_images(self, image_paths: List[Path]) -> List[ImageResult]:
-        """Process images and compute scores.
-        
-        Args:
-            image_paths: List of image paths
-            
-        Returns:
-            List of ImageResult objects
-        """
-        results = []
-        for i, image_path in enumerate(image_paths, 1):
+    def process_images(self, image_paths: list[Path]) -> list[ImageResult]:
+        """Analyze images while ensuring source files are closed promptly."""
+        results: list[ImageResult] = []
+        for index, image_path in enumerate(image_paths, start=1):
+            logger.info("Processing %d/%d: %s", index, len(image_paths), image_path.name)
             try:
-                logger.info(f"Processing {i}/{len(image_paths)}: {image_path.name}")
-                score, passed = self.analyzer.analyze(Image.open(image_path), image_path.name)
-                results.append(ImageResult(str(image_path), score, passed))
-            except Exception as e:
-                logger.error(f"Error processing {image_path}: {e}")
-                results.append(ImageResult(str(image_path), 0.0, False))
-
+                with Image.open(image_path) as source:
+                    image = ImageOps.exif_transpose(source).convert("RGB")
+                analysis = self.analyzer.analyze(image, image_path.name)
+                results.append(ImageResult(str(image_path), analysis.score, analysis.passed, analysis.metrics))
+            except Exception as exc:
+                logger.exception("Error processing %s: %s", image_path, exc)
         return results
 
-    def select_top_n(self, results: List[ImageResult]) -> List[ImageResult]:
-        """Select top N images by score.
-        
-        Args:
-            results: List of all results
-            
-        Returns:
-            Top N results
-        """
-        sorted_results = sorted(results, key=lambda x: x.score, reverse=True)
-        top_results = sorted_results[: self.top_n]
-        logger.info(f"Selected top {len(top_results)} images")
-        return top_results
+    def select_top_n(self, results: list[ImageResult]) -> list[ImageResult]:
+        """Filter by threshold and return the highest-scoring results."""
+        eligible = [result for result in results if result.passed]
+        selected = sorted(eligible, key=lambda result: (-result.score, result.path.casefold()))[: self.top_n]
+        logger.info("Selected %d of %d eligible images", len(selected), len(eligible))
+        return selected
 
-    def save_results(self, results: List[ImageResult], output_dir: str):
-        """Save results to disk.
-        
-        Args:
-            results: List of results
-            output_dir: Output directory
-        """
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
+    def save_results(self, results: list[ImageResult], output_dir: str) -> None:
+        """Write results atomically and copy selected images."""
+        output = Path(output_dir).expanduser().resolve()
+        selected_dir = output / "selected"
+        selected_dir.mkdir(parents=True, exist_ok=True)
 
-        results_data = [
-            {
-                "path": str(result.path),
-                "score": float(result.score),
-                "passed": bool(result.passed),
-            }
-            for result in results
-        ]
-        results_file = output_path / "results.json"
-        with open(results_file, "w") as f:
-            json.dump(results_data, f, indent=2)
+        exported: list[dict[str, Any]] = []
+        for rank, result in enumerate(results, start=1):
+            source = Path(result.path)
+            destination = selected_dir / f"{rank:03d}_{source.name}"
+            shutil.copy2(source, destination)
+            item = result.to_dict()
+            item["rank"] = rank
+            item["exported_path"] = str(destination)
+            exported.append(item)
 
-        logger.info(f"Saved results to {results_file}")
+        temporary = output / "results.json.tmp"
+        target = output / "results.json"
+        temporary.write_text(json.dumps(exported, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        temporary.replace(target)
+        logger.info("Saved results to %s", target)
 
-    def run(
-        self,
-        input_dir: str,
-        output_dir: Optional[str] = None,
-        dry_run: bool = False,
-    ) -> List[ImageResult]:
-        """Execute the complete curation pipeline.
-        
-        Args:
-            input_dir: Input directory with images
-            output_dir: Output directory for results
-            dry_run: If True, don't save results
-            
-        Returns:
-            List of top results
-        """
-        output_dir = output_dir or "./output"
-
-        try:
-            image_paths = self.discover_images(input_dir)
-            if not image_paths:
-                logger.warning(f"No images found in {input_dir}")
-                return []
-
-            all_results = self.process_images(image_paths)
-            if not all_results:
-                logger.warning("No images processed")
-                return []
-
-            top_results = self.select_top_n(all_results)
-
-            if not dry_run:
-                self.save_results(top_results, output_dir)
-                logger.info("Pipeline completed successfully")
-            else:
-                logger.info("Dry run completed")
-
-            return top_results
-
-        except Exception as e:
-            logger.error(f"Pipeline failed: {e}", exc_info=True)
-            raise
+    def run(self, input_dir: str, output_dir: str | None = None, dry_run: bool = False) -> list[ImageResult]:
+        """Execute discovery, scoring, filtering, ranking, and optional export."""
+        images = self.discover_images(input_dir)
+        if not images:
+            logger.warning("No images found in %s", input_dir)
+            return []
+        results = self.process_images(images)
+        selected = self.select_top_n(results)
+        if not dry_run:
+            self.save_results(selected, output_dir or "./output")
+            logger.info("Pipeline completed successfully")
+        else:
+            logger.info("Dry run completed")
+        return selected
