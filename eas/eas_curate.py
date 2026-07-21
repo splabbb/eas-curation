@@ -1,52 +1,118 @@
 #!/usr/bin/env python3
-"""EAS Curate - CLI entry point"""
-import logging
-import sys
-from pathlib import Path
-import click
-from eas.pipeline import ImageCurationPipeline
-from eas.config import DEFAULT_MODEL, DEFAULT_CACHE_DIR, DEFAULT_THRESHOLD, DEFAULT_TOP_N, DEFAULT_OUTPUT_DIR, LOG_FORMAT, LOG_DATE_FORMAT
+"""CLI entry point for EAS curation pipeline."""
 
-def setup_logging(verbose=False):
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
-    if not verbose:
-        logging.getLogger("transformers").setLevel(logging.WARNING)
-        logging.getLogger("torch").setLevel(logging.WARNING)
+import sys
+import logging
+import click
+from pathlib import Path
+from eas.pipeline import ImageCurationPipeline
+
+logger = logging.getLogger(__name__)
+
 
 @click.command()
-@click.argument("input_dir", type=click.Path(exists=False, file_okay=False))
-@click.option("--top-n", type=int, default=DEFAULT_TOP_N)
-@click.option("--explain/--no-explain", default=False)
-@click.option("--verbose/--no-verbose", default=False)
-@click.option("--output-dir", type=click.Path(file_okay=False), default=str(DEFAULT_OUTPUT_DIR))
-@click.option("--cache-dir", type=click.Path(file_okay=False), default=str(DEFAULT_CACHE_DIR))
-@click.option("--threshold", type=float, default=DEFAULT_THRESHOLD)
-@click.option("--model", type=str, default=DEFAULT_MODEL)
-@click.option("--dry-run/--no-dry-run", default=False)
-def main(input_dir, top_n, explain, verbose, output_dir, cache_dir, threshold, model, dry_run):
-    """Automated image curation pipeline."""
-    setup_logging(verbose)
-    logger = logging.getLogger(__name__)
+@click.argument("input_dir", type=click.Path(exists=True))
+@click.option(
+    "--output-dir",
+    "-o",
+    type=click.Path(),
+    default="./output",
+    help="Output directory for curated images",
+)
+@click.option(
+    "--top-n",
+    "-n",
+    type=int,
+    default=100,
+    help="Number of top images to select",
+)
+@click.option(
+    "--threshold",
+    "-t",
+    type=float,
+    default=0.5,
+    help="Quality score threshold (0-1)",
+)
+@click.option(
+    "--model",
+    "-m",
+    type=str,
+    default="ViT-B/32",
+    help="CLIP model to use",
+)
+@click.option(
+    "--cache-dir",
+    "-c",
+    type=click.Path(),
+    default="./.eas_cache",
+    help="Cache directory for embeddings",
+)
+@click.option(
+    "--explain/--no-explain",
+    default=False,
+    help="Provide explanations for scores",
+)
+@click.option(
+    "--verbose/--quiet",
+    "-v/-q",
+    default=False,
+    help="Verbose output",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Run without saving results",
+)
+def main(
+    input_dir,
+    output_dir,
+    top_n,
+    threshold,
+    model,
+    cache_dir,
+    explain,
+    verbose,
+    dry_run,
+):
+    """Curate images using embedding-based quality scoring."""
     try:
-        input_path = Path(input_dir)
-        if not input_path.exists():
-            click.echo(f"Error: {input_dir} not found", err=True)
-            sys.exit(1)
-        config = {"top_n": top_n, "threshold": threshold, "model_name": model, "cache_dir": cache_dir, "explain": explain, "verbose": verbose}
+        if verbose:
+            logging.basicConfig(level=logging.DEBUG)
+        else:
+            logging.basicConfig(level=logging.INFO)
+
+        config = {
+            "top_n": top_n,
+            "threshold": threshold,
+            "model_name": model,
+            "cache_dir": cache_dir,
+            "explain": explain,
+            "verbose": verbose,
+        }
+
         pipeline = ImageCurationPipeline(config)
-        click.echo(f"Starting pipeline... Input: {input_dir}")
+
+        click.echo(f"\n🚀 Starting image curation pipeline...")
+        click.echo(f"📁 Input: {input_dir}")
+        click.echo(f"📊 Looking for top {top_n} images\n")
+
         results = pipeline.run(input_dir=input_dir, output_dir=output_dir, dry_run=dry_run)
-        click.echo(f"Done! Found {len(results)} images")
+
+        click.echo(f"\n✅ Pipeline completed!")
+        click.echo(f"📸 Found {len(results)} images")
+
         if not dry_run:
-            click.echo(f"Results saved to: {output_dir}")
+            click.echo(f"💾 Results saved to: {output_dir}")
+
     except KeyboardInterrupt:
-        click.echo("Interrupted", err=True)
+        click.echo("\n⚠️  Pipeline interrupted by user", err=True)
         sys.exit(130)
     except Exception as e:
-        logger.error(f"Error: {e}", exc_info=verbose)
-        click.echo(f"Failed: {e}", err=True)
+        logger.error(f"Fatal error: {e}", exc_info=verbose)
+        click.echo(f"\n❌ Pipeline failed: {e}", err=True)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

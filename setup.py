@@ -13,7 +13,7 @@ setup(
         "tiktoken>=0.4.0",
         "matplotlib>=3.7.0",
         "Pillow>=9.5.0",
-        "numpy>=1.24.0",
+        "numpy<2",
         "tqdm>=4.65.0",
         "click>=8.1.0",
         "python-dotenv>=1.0.0",

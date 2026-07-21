@@ -1,6 +1,4 @@
-"""
-EAS (Embedding-based Aesthetic/Technical Scoring) - Image Curation System
-"""
+"""EAS Curation Package - Automated image curation using embedding-based quality scoring."""
 
 __version__ = "0.1.0"
 
