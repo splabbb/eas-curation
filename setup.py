@@ -17,6 +17,7 @@ setup(
         "tqdm>=4.65.0",
         "click>=8.1.0",
         "python-dotenv>=1.0.0",
+	"PyYAML>=6.0,<7.0",
     ],
     entry_points={
         "console_scripts": [

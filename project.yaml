@@ -1,0 +1,57 @@
+schema_version: 1
+
+project:
+  title: "My documentary project"
+
+  synopsis: >
+    A documentary photography project examining everyday life,
+    relationships, place, and change. Replace this description
+    with the actual factual purpose of the project.
+
+  themes:
+    - memory
+    - place
+    - community
+
+  subjects:
+    - everyday life
+    - human relationships
+    - public space
+
+  locations:
+    - France
+
+editorial:
+  visual_intent: >
+    Observational documentary photography emphasizing gestures,
+    relationships, environmental context, and specific moments
+    rather than generic aesthetic polish.
+
+  desired_sequence_roles:
+    - opener
+    - establishing
+    - character
+    - relationship
+    - action
+    - detail
+    - transition
+    - quiet_moment
+    - closer
+
+  avoid:
+    - redundant frames
+    - generic scenery
+    - repeated compositions
+    - technically polished images without narrative relevance
+
+selection:
+  candidate_count: 200
+  final_count: 50
+  max_per_burst: 2
+  duplicate_hash_distance: 6
+  burst_window_seconds: 3.0
+
+provenance:
+  require_original_metadata: false
+  flag_missing_metadata: true
+  synthetic_images_allowed: false
