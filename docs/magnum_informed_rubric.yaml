@@ -1,0 +1,409 @@
+schema_version: 1
+rubric_id: magnum_informed_portfolio_review
+rubric_version: "1.0.0"
+title: Magnum-Informed Portfolio Review
+description: >-
+  An independently authored, source-only reference rubric for structured human
+  review of individual photographs and photographic portfolios. It supports
+  image-level and portfolio-level evaluation without changing the current
+  eas-curation scoring path or runtime behavior.
+scope: hybrid
+metadata:
+  author: Nicolas Malaisé
+  created_at: "2026-08-01"
+  reference_documents:
+    - docs/rubric_schema.md
+    - docs/rubric_versioning.md
+  tags:
+    - editorial-review
+    - photography
+    - portfolio
+    - source-only
+  disclaimer: |-
+    This rubric is independently authored for the eas-curation project.
+
+    It is informed by general, publicly discussed editorial portfolio-review
+    concepts and photographic evaluation practices.
+
+    It is not an official Magnum Photos rubric, policy, review framework,
+    endorsement, certification, recommendation, or publication standard.
+
+    Use of the term "Magnum-informed" indicates general editorial inspiration
+    only. It does not indicate affiliation, authorization, sponsorship,
+    approval, representation, or endorsement by Magnum Photos or any of its
+    members.
+
+    The rubric provides configurable review guidance and does not guarantee
+    editorial acceptance, publication, professional recognition, legal
+    compliance, factual authenticity, or any particular selection outcome.
+
+    Users remain responsible for editorial decisions, rights clearance,
+    provenance verification, privacy obligations, and lawful use of all images
+    and associated metadata.
+score_scale:
+  minimum: 0
+  maximum: 5
+aggregation:
+  method: weighted_mean
+  normalize_weights: true
+criteria:
+  - criterion_id: technical_quality
+    name: Technical Quality
+    level: image
+    weight: 1.0
+    required: true
+    description: >-
+      Evaluates whether focus, exposure, contrast, dynamic range, clipping,
+      visible artifacts, and resolution suitability support the image's
+      intended editorial use.
+    score_bands:
+      - minimum: 0
+        maximum: 1
+        label: weak
+        guidance: >-
+          Technical limitations substantially obstruct the image's intended
+          reading or practical editorial use.
+      - minimum: 2
+        maximum: 3
+        label: developing
+        guidance: >-
+          Technical execution is usable but contains noticeable limitations or
+          inconsistencies that reduce clarity or flexibility.
+      - minimum: 4
+        maximum: 5
+        label: strong
+        guidance: >-
+          Technical execution consistently supports the intended reading and
+          is suitable for the contemplated editorial context.
+    projectbrief_fields:
+      - visual_intent
+      - avoid
+    tags:
+      - image
+      - craft
+    evidence_guidance: >-
+      Review visible focus, exposure, tonal range, clipping, artifacts, and
+      resolution in relation to the stated visual intent.
+
+  - criterion_id: composition
+    name: Composition
+    level: image
+    weight: 1.0
+    required: true
+    description: >-
+      Evaluates framing, balance, visual hierarchy, spatial relationships, and
+      the clarity with which the composition directs attention.
+    score_bands:
+      - minimum: 0
+        maximum: 1
+        label: weak
+        guidance: >-
+          Framing or spatial organization obscures the subject, intent, or
+          visual reading without a clear editorial purpose.
+      - minimum: 2
+        maximum: 3
+        label: developing
+        guidance: >-
+          The composition communicates its subject but contains unresolved
+          hierarchy, balance, or edge relationships.
+      - minimum: 4
+        maximum: 5
+        label: strong
+        guidance: >-
+          Framing, hierarchy, and spatial relationships work together clearly
+          and purposefully.
+    projectbrief_fields:
+      - visual_intent
+      - subjects
+      - locations
+      - avoid
+    tags:
+      - image
+      - composition
+    evidence_guidance: >-
+      Review subject placement, visual hierarchy, edge control, balance,
+      spatial tension, and the relationship between foreground and background.
+
+  - criterion_id: narrative_contribution
+    name: Narrative Contribution
+    level: image
+    weight: 1.25
+    required: true
+    description: >-
+      Evaluates whether the image contributes a meaningful event, detail,
+      relationship, tension, transition, or context to the project's story.
+    score_bands:
+      - minimum: 0
+        maximum: 1
+        label: weak
+        guidance: >-
+          The image adds little identifiable narrative information or repeats
+          material already communicated more effectively.
+      - minimum: 2
+        maximum: 3
+        label: developing
+        guidance: >-
+          The image offers relevant narrative information, but its role or
+          contribution is limited, familiar, or only partly resolved.
+      - minimum: 4
+        maximum: 5
+        label: strong
+        guidance: >-
+          The image makes a clear and consequential contribution to the story,
+          context, tension, development, or transition.
+    projectbrief_fields:
+      - title
+      - synopsis
+      - themes
+      - subjects
+      - locations
+      - desired_sequence_roles
+    tags:
+      - image
+      - narrative
+    evidence_guidance: >-
+      Identify the specific narrative information supplied by the image and
+      whether that information advances, complicates, or contextualizes the
+      stated project.
+
+  - criterion_id: project_relevance
+    name: Project Relevance
+    level: image
+    weight: 1.25
+    required: true
+    description: >-
+      Evaluates alignment with the ProjectBrief's synopsis, themes, subjects,
+      locations, visual intent, exclusions, and other declared priorities.
+    score_bands:
+      - minimum: 0
+        maximum: 1
+        label: weak
+        guidance: >-
+          The relationship to the declared project is absent, contradictory,
+          or dependent on unsupported interpretation.
+      - minimum: 2
+        maximum: 3
+        label: developing
+        guidance: >-
+          The image relates to the project but addresses its priorities only
+          partially or generically.
+      - minimum: 4
+        maximum: 5
+        label: strong
+        guidance: >-
+          The image directly and specifically supports the declared project
+          intent while respecting stated exclusions.
+    projectbrief_fields:
+      - title
+      - synopsis
+      - themes
+      - subjects
+      - locations
+      - visual_intent
+      - avoid
+      - semantic_prompts
+    tags:
+      - image
+      - relevance
+    evidence_guidance: >-
+      Compare visible content and treatment with the ProjectBrief, noting both
+      direct support and any conflict with declared exclusions.
+
+  - criterion_id: distinctiveness
+    name: Distinctiveness
+    level: image
+    weight: 1.0
+    required: true
+    description: >-
+      Evaluates whether the image contributes a sufficiently distinct moment,
+      perspective, treatment, information, or narrative function.
+    score_bands:
+      - minimum: 0
+        maximum: 1
+        label: weak
+        guidance: >-
+          The image is substantially redundant, generic, or interchangeable
+          with stronger material in the same project context.
+      - minimum: 2
+        maximum: 3
+        label: developing
+        guidance: >-
+          The image contains some distinguishing content or treatment, but its
+          unique contribution is modest or inconsistently expressed.
+      - minimum: 4
+        maximum: 5
+        label: strong
+        guidance: >-
+          The image provides a clearly differentiated moment, viewpoint,
+          treatment, or narrative function that merits inclusion.
+    projectbrief_fields:
+      - themes
+      - subjects
+      - visual_intent
+      - desired_sequence_roles
+    tags:
+      - image
+      - distinctiveness
+    evidence_guidance: >-
+      Compare the image's moment, viewpoint, treatment, information, and likely
+      sequence role with other relevant material in the project.
+
+  - criterion_id: cohesion
+    name: Cohesion
+    level: portfolio
+    weight: 1.25
+    required: true
+    description: >-
+      Evaluates thematic and visual coherence across the portfolio while
+      allowing purposeful variation, contrast, and development.
+    score_bands:
+      - minimum: 0
+        maximum: 1
+        label: weak
+        guidance: >-
+          The portfolio lacks an intelligible visual or thematic relationship,
+          or its inconsistencies appear unintentional and disruptive.
+      - minimum: 2
+        maximum: 3
+        label: developing
+        guidance: >-
+          A coherent direction is present, but visual or thematic relationships
+          are uneven, repetitive, or underdeveloped.
+      - minimum: 4
+        maximum: 5
+        label: strong
+        guidance: >-
+          The portfolio sustains a clear visual and thematic identity while
+          using variation and contrast purposefully.
+    projectbrief_fields:
+      - synopsis
+      - themes
+      - visual_intent
+      - avoid
+    tags:
+      - portfolio
+      - cohesion
+    evidence_guidance: >-
+      Review recurring visual language, thematic relationships, tonal shifts,
+      variation, and whether departures strengthen or weaken the whole.
+
+  - criterion_id: sequence_support
+    name: Sequence Support
+    level: portfolio
+    weight: 1.0
+    required: true
+    description: >-
+      Evaluates how the selected images support progression, pacing,
+      transitions, opening and closing functions, and declared sequence roles.
+    score_bands:
+      - minimum: 0
+        maximum: 1
+        label: weak
+        guidance: >-
+          The ordering lacks a readable progression, contains disruptive
+          repetitions, or leaves essential sequence functions unsupported.
+      - minimum: 2
+        maximum: 3
+        label: developing
+        guidance: >-
+          The sequence has a discernible structure, but pacing, transitions, or
+          image roles are inconsistent or only partly effective.
+      - minimum: 4
+        maximum: 5
+        label: strong
+        guidance: >-
+          The ordering creates purposeful progression, pacing, transitions,
+          and image roles that strengthen the portfolio's reading.
+    projectbrief_fields:
+      - synopsis
+      - themes
+      - desired_sequence_roles
+      - visual_intent
+    tags:
+      - portfolio
+      - sequence
+    evidence_guidance: >-
+      Review adjacency, pacing, repetition, transitions, opening and closing
+      functions, and fulfillment of declared sequence roles.
+
+  - criterion_id: subject_coverage
+    name: Subject Coverage
+    level: portfolio
+    weight: 1.0
+    required: true
+    description: >-
+      Evaluates whether the portfolio adequately represents the intended
+      themes, subjects, locations, and narrative requirements without relying
+      on unsupported or excessive repetition.
+    score_bands:
+      - minimum: 0
+        maximum: 1
+        label: weak
+        guidance: >-
+          Essential declared subjects, themes, locations, or narrative needs
+          are absent, materially underrepresented, or contradicted.
+      - minimum: 2
+        maximum: 3
+        label: developing
+        guidance: >-
+          Core requirements are partly represented, but meaningful gaps,
+          imbalances, or unnecessary concentrations remain.
+      - minimum: 4
+        maximum: 5
+        label: strong
+        guidance: >-
+          The portfolio represents the declared subjects, themes, locations,
+          and narrative needs with purposeful breadth and proportion.
+    projectbrief_fields:
+      - synopsis
+      - themes
+      - subjects
+      - locations
+      - desired_sequence_roles
+      - avoid
+    tags:
+      - portfolio
+      - coverage
+    evidence_guidance: >-
+      Compare the selected set with declared project requirements, identifying
+      omissions, imbalances, overrepresentation, and purposeful exclusions.
+
+  - criterion_id: portfolio_integrity
+    name: Portfolio Integrity
+    level: portfolio
+    weight: 1.0
+    required: true
+    description: >-
+      Evaluates duplicate findings, provenance warnings, missing assets,
+      unresolved file issues, and other integrity signals relevant to reliable
+      portfolio review.
+    score_bands:
+      - minimum: 0
+        maximum: 1
+        label: weak
+        guidance: >-
+          Material duplicate, provenance, missing-asset, or file-integrity
+          issues prevent reliable review or materially weaken the portfolio.
+      - minimum: 2
+        maximum: 3
+        label: developing
+        guidance: >-
+          The portfolio is reviewable, but unresolved integrity warnings,
+          duplicate relationships, or missing information require attention.
+      - minimum: 4
+        maximum: 5
+        label: strong
+        guidance: >-
+          The portfolio has no material unresolved integrity issues, and known
+          warnings or duplicate relationships are documented and understood.
+    projectbrief_fields:
+      - avoid
+    tags:
+      - portfolio
+      - integrity
+    evidence_guidance: >-
+      Review available duplicate findings, provenance records, missing-asset
+      notices, file warnings, and documented exceptions. Do not infer factual
+      authenticity from visual appearance alone.
+    gating:
+      enabled: false
