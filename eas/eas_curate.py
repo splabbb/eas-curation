@@ -1,23 +1,20 @@
-"""Command-line interface for the EAS image-curation pipeline."""
+"""Command-line interface for the EAS image-curation application."""
 
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
-from typing import Any
 
 import click
 
+from eas.application import CurationRunRequest, run_curation
 from eas.brief import ProjectBrief, load_project_brief
-from eas.pipeline import ImageCurationPipeline
 
 logger = logging.getLogger(__name__)
 
 
 def _configure_logging(verbose: bool) -> None:
     """Configure process-wide logging for the CLI."""
-
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -28,36 +25,9 @@ def _configure_logging(verbose: bool) -> None:
 
 def _resolve_brief(brief_path: str | None) -> ProjectBrief | None:
     """Load a project brief when one was supplied."""
-
     if brief_path is None:
         return None
-
     return load_project_brief(brief_path)
-
-
-def _build_config(
-    *,
-    top_n: int,
-    threshold: float,
-    model: str,
-    cache_dir: str,
-    deduplicate: bool,
-    explain: bool,
-    verbose: bool,
-    brief: ProjectBrief | None,
-) -> dict[str, Any]:
-    """Build the pipeline configuration dictionary."""
-
-    return {
-        "top_n": top_n,
-        "threshold": threshold,
-        "model_name": model,
-        "cache_dir": cache_dir,
-        "deduplicate": deduplicate,
-        "explain": explain,
-        "verbose": verbose,
-        "project_brief": brief.to_dict() if brief is not None else None,
-    }
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
@@ -79,11 +49,7 @@ def _build_config(
     "--output",
     "output_path",
     "-o",
-    type=click.Path(
-        file_okay=False,
-        dir_okay=True,
-        path_type=Path,
-    ),
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
     default=Path("./output"),
     show_default=True,
     help="Directory for selected images and JSON reports.",
@@ -113,11 +79,7 @@ def _build_config(
 )
 @click.option(
     "--cache-dir",
-    type=click.Path(
-        file_okay=False,
-        dir_okay=True,
-        path_type=Path,
-    ),
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
     default=Path("./.eas_cache"),
     show_default=True,
     help="Directory reserved for model and embedding caches.",
@@ -171,7 +133,6 @@ def main(
     verbose: bool,
 ) -> None:
     """Curate, deduplicate, score, rank, and export image selections."""
-
     _configure_logging(verbose)
 
     try:
@@ -186,20 +147,25 @@ def main(
             else 10
         )
 
-        config = _build_config(
-            top_n=effective_top_n,
-            threshold=threshold,
-            model=model,
-            cache_dir=str(cache_dir.expanduser()),
-            deduplicate=deduplicate,
-            explain=explain,
-            verbose=verbose,
-            brief=brief,
-        )
-        pipeline = ImageCurationPipeline(config)
-
         resolved_input = input_path.expanduser().resolve()
         resolved_output = output_path.expanduser().resolve()
+
+        request = CurationRunRequest(
+            input_dir=resolved_input,
+            output_dir=resolved_output,
+            top_n=effective_top_n,
+            threshold=threshold,
+            model_name=model,
+            deduplicate=deduplicate,
+            dry_run=dry_run,
+            project_brief=brief,
+        )
+
+        logger.debug(
+            "Reserved CLI configuration: cache_dir=%s explain=%s",
+            cache_dir.expanduser(),
+            explain,
+        )
 
         click.echo("\nStarting image curation pipeline")
         click.echo(f"Input: {resolved_input}")
@@ -215,30 +181,44 @@ def main(
             click.echo(f"Project brief: {brief.title}")
             click.echo(f"Brief source: {brief.source_path}")
 
-        results = pipeline.run(
-            input_dir=str(resolved_input),
-            output_dir=str(resolved_output),
-            dry_run=dry_run,
-        )
+        result = run_curation(request)
 
         click.echo("\nPipeline completed")
-        click.echo(f"Selected images: {len(results)}")
+        click.echo(f"Selected images: {result.selected_count}")
+
+        if result.failed_analysis_paths:
+            click.echo(
+                "Failed image analyses: "
+                f"{len(result.failed_analysis_paths)}"
+            )
 
         if dry_run:
             click.echo("No files were written because --dry-run was used.")
-        else:
+        elif result.written_artifacts:
             click.echo(f"Selected files: {resolved_output / 'selected'}")
             click.echo(f"Ranking report: {resolved_output / 'results.json'}")
-            if deduplicate:
+            if result.duplicate_report is not None:
                 click.echo(
                     f"Duplicate report: {resolved_output / 'duplicates.json'}"
+                )
+                click.echo(
+                    f"Integrity report: {resolved_output / 'integrity.json'}"
                 )
 
     except KeyboardInterrupt:
         click.echo("\nPipeline interrupted by user.", err=True)
         raise click.exceptions.Exit(130)
-    except (FileNotFoundError, NotADirectoryError, PermissionError, ValueError) as exc:
-        logger.error("Configuration or input error: %s", exc, exc_info=verbose)
+    except (
+        FileNotFoundError,
+        NotADirectoryError,
+        PermissionError,
+        ValueError,
+    ) as exc:
+        logger.error(
+            "Configuration or input error: %s",
+            exc,
+            exc_info=verbose,
+        )
         raise click.ClickException(str(exc)) from exc
     except Exception as exc:
         logger.exception("Fatal pipeline error")
