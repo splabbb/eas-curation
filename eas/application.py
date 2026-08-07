@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from eas.run_manifest import RunManifest
 
 from eas.brief import ProjectBrief
 from eas.clustering import ExactDuplicateReport, find_exact_duplicates
@@ -91,6 +94,7 @@ class CurationRunResult:
     duplicate_report: ExactDuplicateReport | None
     integrity_report: IntegrityReport | None
     written_artifacts: tuple[str, ...]
+    manifest: RunManifest | None = None
 
     @property
     def discovered_count(self) -> int:
@@ -144,6 +148,11 @@ class CurationRunResult:
                 else None
             ),
             "written_artifacts": list(self.written_artifacts),
+            "manifest": (
+                self.manifest.to_dict()
+                if self.manifest is not None
+                else None
+            ),
         }
 
 
@@ -228,7 +237,7 @@ class CurationRunService:
                 integrity_report=integrity_report,
             )
 
-        result = CurationRunResult(
+        provisional_result = CurationRunResult(
             input_dir=str(input_dir),
             output_dir=str(output_dir),
             dry_run=request.dry_run,
@@ -243,6 +252,33 @@ class CurationRunService:
             integrity_report=integrity_report,
             written_artifacts=written_artifacts,
         )
+
+        from eas.run_manifest import build_run_manifest
+
+        manifest = build_run_manifest(
+            request,
+            provisional_result,
+        )
+
+        if request.dry_run or not discovered:
+            result = replace(
+                provisional_result,
+                manifest=manifest,
+            )
+        else:
+            manifest_path = output_dir / "run_manifest.json"
+            self._write_json_atomic(
+                manifest_path,
+                manifest.to_dict(),
+            )
+            result = replace(
+                provisional_result,
+                written_artifacts=(
+                    *written_artifacts,
+                    str(manifest_path),
+                ),
+                manifest=manifest,
+            )
 
         logger.info(
             "Curation run completed: discovered=%d analyzed=%d "
