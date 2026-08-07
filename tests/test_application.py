@@ -167,6 +167,9 @@ def test_empty_input_directory_returns_empty_result(
     assert result.integrity_report is not None
     assert result.integrity_report.findings == ()
     assert result.written_artifacts == ()
+    assert result.manifest is not None
+    assert result.manifest.summary.discovered_count == 0
+    assert result.manifest.artifacts == ()
     assert not output_dir.exists()
 
 
@@ -189,6 +192,9 @@ def test_dry_run_is_write_free(
     assert result.analyzed_count == 1
     assert result.selected_count == 1
     assert result.written_artifacts == ()
+    assert result.manifest is not None
+    assert result.manifest.dry_run is True
+    assert result.manifest.artifacts == ()
     assert not output_dir.exists()
 
 
@@ -301,6 +307,7 @@ def test_output_run_writes_expected_artifacts(
         str(output_dir.resolve() / "results.json"),
         str(output_dir.resolve() / "duplicates.json"),
         str(output_dir.resolve() / "integrity.json"),
+        str(output_dir.resolve() / "run_manifest.json"),
     )
 
     assert result.written_artifacts == expected_artifacts
@@ -308,6 +315,20 @@ def test_output_run_writes_expected_artifacts(
     assert (output_dir / "results.json").is_file()
     assert (output_dir / "duplicates.json").is_file()
     assert (output_dir / "integrity.json").is_file()
+    assert (output_dir / "run_manifest.json").is_file()
+    assert result.manifest is not None
+    manifest_data = json.loads(
+        (output_dir / "run_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest_data == result.manifest.to_dict()
+    assert result.manifest.artifacts == expected_artifacts[:-1]
+    assert (
+        str(output_dir.resolve() / "run_manifest.json")
+        not in result.manifest.artifacts
+    )
+    assert not (output_dir / "run_manifest.json.tmp").exists()
 
     selected_files = tuple(
         (output_dir / "selected").iterdir()
@@ -354,10 +375,15 @@ def test_disabled_deduplication_writes_only_legacy_outputs(
     assert result.written_artifacts == (
         str(output_dir.resolve() / "selected"),
         str(output_dir.resolve() / "results.json"),
+        str(output_dir.resolve() / "run_manifest.json"),
     )
     assert (output_dir / "results.json").is_file()
+    assert (output_dir / "run_manifest.json").is_file()
     assert not (output_dir / "duplicates.json").exists()
     assert not (output_dir / "integrity.json").exists()
+    assert result.manifest is not None
+    assert result.manifest.reports.duplicate_report is None
+    assert result.manifest.reports.integrity_report is None
 
 
 def test_result_is_immutable_and_json_compatible(
@@ -383,6 +409,8 @@ def test_result_is_immutable_and_json_compatible(
     assert "discovered_count" in serialized
     assert "selected_results" in serialized
     assert str((tmp_path / "image.jpg").resolve()) in serialized
+    assert result.manifest is not None
+    assert json.loads(serialized)["manifest"] == result.manifest.to_dict()
 
 
 def test_repeated_dry_runs_are_equal(
@@ -410,6 +438,8 @@ def test_repeated_dry_runs_are_equal(
         str((tmp_path / "a.jpg").resolve()),
         str((tmp_path / "b.jpg").resolve()),
     )
+    assert first.manifest is not None
+    assert first.manifest == second.manifest
 
 
 def test_empty_non_dry_run_preserves_legacy_no_write_behavior(
@@ -431,4 +461,74 @@ def test_empty_non_dry_run_preserves_legacy_no_write_behavior(
     assert result.written_artifacts == ()
     assert result.duplicate_report is not None
     assert result.integrity_report is not None
+    assert result.manifest is not None
+    assert result.manifest.artifacts == ()
+    assert result.manifest.summary.discovered_count == 0
     assert not output_dir.exists()
+
+
+def test_manifest_write_failure_propagates_and_preserves_existing_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A manifest write failure must not roll back existing outputs."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    create_image(input_dir / "image.jpg")
+    output_dir = tmp_path / "output"
+    service = CurationRunService()
+    original_write_json_atomic = service._write_json_atomic
+    expected_error = PermissionError(
+        "manifest destination is not writable"
+    )
+
+    def fail_manifest_only(
+        target: Path,
+        payload: dict[str, object],
+    ) -> None:
+        if target.name == "run_manifest.json":
+            raise expected_error
+        original_write_json_atomic(target, payload)
+
+    monkeypatch.setattr(
+        service,
+        "_write_json_atomic",
+        fail_manifest_only,
+    )
+
+    with pytest.raises(PermissionError) as raised:
+        service.run(
+            make_request(
+                input_dir,
+                output_dir,
+                dry_run=False,
+            )
+        )
+
+    assert raised.value is expected_error
+    assert (output_dir / "selected").is_dir()
+    assert (output_dir / "results.json").is_file()
+    assert (output_dir / "duplicates.json").is_file()
+    assert (output_dir / "integrity.json").is_file()
+    assert not (output_dir / "run_manifest.json").exists()
+
+
+def test_result_without_attached_manifest_serializes_null(
+    tmp_path: Path,
+) -> None:
+    """The compatible manifest field defaults to null."""
+    result = CurationRunResult(
+        input_dir=str(tmp_path.resolve()),
+        output_dir=str((tmp_path / "output").resolve()),
+        dry_run=True,
+        discovered_paths=(),
+        analyzed_results=(),
+        selected_results=(),
+        failed_analysis_paths=(),
+        duplicate_report=None,
+        integrity_report=None,
+        written_artifacts=(),
+    )
+
+    assert result.manifest is None
+    assert result.to_dict()["manifest"] is None

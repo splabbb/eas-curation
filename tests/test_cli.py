@@ -96,6 +96,7 @@ def test_cli_delegates_to_application_service(
     assert "Pipeline completed" in result.output
     assert "Selected images: 0" in result.output
     assert "No files were written" in result.output
+    assert "Run manifest:" not in result.output
 
 
 def test_cli_reports_application_artifacts(
@@ -116,6 +117,7 @@ def test_cli_reports_application_artifacts(
                 str(output / "results.json"),
                 str(output / "duplicates.json"),
                 str(output / "integrity.json"),
+                str(output / "run_manifest.json"),
             ),
             duplicate_report=object(),
         )
@@ -144,3 +146,7 @@ def test_cli_reports_application_artifacts(
     assert f"Ranking report: {output_dir.resolve() / 'results.json'}" in result.output
     assert f"Duplicate report: {output_dir.resolve() / 'duplicates.json'}" in result.output
     assert f"Integrity report: {output_dir.resolve() / 'integrity.json'}" in result.output
+    assert (
+        f"Run manifest: {output_dir.resolve() / 'run_manifest.json'}"
+        in result.output
+    )

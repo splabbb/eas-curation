@@ -204,6 +204,16 @@ def main(
                 click.echo(
                     f"Integrity report: {resolved_output / 'integrity.json'}"
                 )
+            manifest_path = next(
+                (
+                    Path(path)
+                    for path in result.written_artifacts
+                    if Path(path).name == "run_manifest.json"
+                ),
+                None,
+            )
+            if manifest_path is not None:
+                click.echo(f"Run manifest: {manifest_path}")
 
     except KeyboardInterrupt:
         click.echo("\nPipeline interrupted by user.", err=True)
