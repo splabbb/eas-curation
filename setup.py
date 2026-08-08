@@ -18,10 +18,14 @@ setup(
         "click>=8.1.0",
         "python-dotenv>=1.0.0",
 	"PyYAML>=6.0,<7.0",
+        "PySide6>=6.7,<7",
     ],
     entry_points={
         "console_scripts": [
             "eas-curate=eas.eas_curate:main",
+        ],
+        "gui_scripts": [
+            "eas-curation-gui=eas.gui.app:main",
         ],
     },
 )
