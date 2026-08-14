@@ -1,4 +1,4 @@
-"""Minimal PySide6 application startup for EAS Curation."""
+"""PySide6 application startup for EAS Curation."""
 
 from __future__ import annotations
 
@@ -6,10 +6,11 @@ import logging
 import sys
 from collections.abc import Sequence
 
-from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication
+
+from eas.gui.window import CurationWindow
 
 logger = logging.getLogger(__name__)
-
 APPLICATION_NAME = "EAS Curation"
 WINDOW_TITLE = "EAS Curation"
 
@@ -42,26 +43,17 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     return application
 
 
-def create_startup_window() -> QWidget:
-    """Create the temporary visible shell used before the main window exists."""
-    window = QWidget()
-    window.setObjectName("easStartupWindow")
-    window.setWindowTitle(WINDOW_TITLE)
-    window.resize(480, 160)
-
-    layout = QVBoxLayout(window)
-    message = QLabel("EAS Curation desktop shell")
-    message.setObjectName("startupLabel")
-    layout.addWidget(message)
-    return window
+def create_main_window() -> CurationWindow:
+    """Create the functional curation window."""
+    return CurationWindow(window_title=WINDOW_TITLE)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Start the minimal desktop shell and return the Qt exit code."""
+    """Start the desktop application and return the Qt exit code."""
     application = create_application(argv)
-    window = create_startup_window()
+    window = create_main_window()
     window.show()
-    logger.info("Starting EAS Curation desktop shell")
+    logger.info("Starting EAS Curation desktop application")
     exit_code = int(application.exec())
     window.close()
     return exit_code
