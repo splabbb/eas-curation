@@ -12,6 +12,8 @@ from PySide6.QtWidgets import QFileDialog
 from eas.application import CurationRunRequest, CurationRunResult
 from eas.gui.controller import CurationController
 from eas.gui.window import CurationWindow
+from eas.pipeline import ImageResult
+from eas.vision import QualityMetrics
 
 
 class FakeController(QObject):
@@ -65,7 +67,20 @@ def window(
     created.model_name.setText("ViT-B/32")
     qtbot.addWidget(created)
     created.show()
-    return created, controller
+    yield created, controller
+    thread = created.results_workspace._thumbnail_loader.worker_thread
+    try:
+        running = thread.isRunning()
+    except RuntimeError:
+        running = False
+    if running:
+        created.results_workspace.shutdown_thumbnails()
+        def stopped() -> bool:
+            try:
+                return not thread.isRunning()
+            except RuntimeError:
+                return True
+        qtbot.waitUntil(stopped, timeout=3000)
 
 
 def test_run_constructs_authoritative_request(
@@ -164,13 +179,11 @@ def test_success_with_written_artifacts_is_presented(
     controller.finish()
 
     assert created.status_text.text() == "Curation completed."
-    assert "Discovered: 3" in created.result_summary.text()
-    assert "Analyzed: 2" in created.result_summary.text()
-    assert "Failed analysis: 1" in created.result_summary.text()
-    assert "Selected: 1" in created.result_summary.text()
-    assert created.artifact_paths.text() == (
-        "Written artifacts:\n/output/results.json\n/output/run_manifest.json"
-    )
+    assert created.results_workspace.result is not None
+    assert "Discovered: 3" in created.results_workspace.counts_label.text()
+    assert "Analyzed: 2" in created.results_workspace.counts_label.text()
+    assert "Failed analysis: 1" in created.results_workspace.counts_label.text()
+    assert "Selected: 1" in created.results_workspace.counts_label.text()
 
 
 def test_successful_dry_run_reports_no_artifacts(
@@ -183,7 +196,7 @@ def test_successful_dry_run_reports_no_artifacts(
     controller.finish()
 
     assert created.status_text.text() == "Curation completed."
-    assert created.artifact_paths.text() == "No artifacts written."
+    assert created.results_workspace.artifacts_empty_label.text() == "No artifacts were written."
 
 
 def test_failure_presentation_is_factual(
@@ -198,8 +211,7 @@ def test_failure_presentation_is_factual(
     assert created.status_text.text() == (
         "Curation failed: ValueError: bad threshold"
     )
-    assert created.result_summary.text() == "No result was produced."
-    assert created.artifact_paths.text() == "No artifacts reported."
+    assert "No result was produced." in created.results_workspace.state_label.text()
     assert created.run_button.isEnabled() is False
 
     controller.finish()
@@ -253,18 +265,21 @@ def test_close_is_rejected_while_run_is_active(
     )
 
 
-def test_close_is_accepted_while_idle(
+def test_close_is_deferred_until_thumbnail_shutdown(
     window: tuple[CurationWindow, FakeController],
+    qtbot: Any,
 ) -> None:
     created, _ = window
-
-    assert created.close() is True
-    assert created.isVisible() is False
-
+    assert created.close() is False
+    qtbot.waitUntil(lambda: not created.isVisible(), timeout=3000)
 
 def _result(*, dry_run: bool) -> CurationRunResult:
     """Return a minimal factual result without loading OpenCLIP."""
-    analyzed = (object(), object())
+    metrics = QualityMetrics(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7)
+    analyzed = (
+        ImageResult("/input/a.jpg", 0.8, True, metrics),
+        ImageResult("/input/b.jpg", 0.7, False, metrics),
+    )
     selected = (analyzed[0],)
     artifacts = () if dry_run else (
         str(Path("/output/results.json")),
@@ -278,8 +293,8 @@ def _result(*, dry_run: bool) -> CurationRunResult:
             str(Path(name))
             for name in ("a.jpg", "b.jpg", "c.jpg")
         ),
-        analyzed_results=analyzed,  # type: ignore[arg-type]
-        selected_results=selected,  # type: ignore[arg-type]
+        analyzed_results=analyzed,
+        selected_results=selected,
         failed_analysis_paths=(str(Path("c.jpg")),),
         duplicate_report=None,
         integrity_report=None,

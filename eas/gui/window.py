@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import QTimer, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from eas.application import CurationRunRequest, CurationRunResult
 from eas.gui.controller import CurationController
+from eas.gui.results import CurationResultsWidget
 
 
 class CurationWindow(QMainWindow):
@@ -46,6 +47,7 @@ class CurationWindow(QMainWindow):
             else controller
         )
         self._request_controls: list[QWidget] = []
+        self._close_after_thumbnail_shutdown = False
         self._build_ui()
         self._connect_controller()
 
@@ -125,8 +127,12 @@ class CurationWindow(QMainWindow):
         self.artifact_paths = QLabel("No artifacts written.")
         self.artifact_paths.setObjectName("artifactPaths")
         self.artifact_paths.setWordWrap(True)
-        layout.addWidget(self.artifact_paths)
-        layout.addStretch()
+        self.result_summary.setVisible(False)
+        self.artifact_paths.setVisible(False)
+        self.results_workspace = CurationResultsWidget(self)
+        self.results_workspace.setObjectName("windowResultsWorkspace")
+        self.results_workspace.setAccessibleName("Curation results workspace")
+        layout.addWidget(self.results_workspace, 1)
         self.setCentralWidget(central)
 
         self._request_controls = [
@@ -144,6 +150,9 @@ class CurationWindow(QMainWindow):
         self.input_browse.clicked.connect(self._browse_input)
         self.output_browse.clicked.connect(self._browse_output)
         self.run_button.clicked.connect(self._start_run)
+        self.results_workspace._thumbnail_loader.stopped.connect(
+            self._on_thumbnail_loader_stopped
+        )
 
     @staticmethod
     def _directory_row(
@@ -234,6 +243,7 @@ class CurationWindow(QMainWindow):
         self.status_text.setText("Curation is running.")
         self.result_summary.setText("Awaiting results.")
         self.artifact_paths.setText("No artifacts reported yet.")
+        self.results_workspace.set_running_state()
 
     @Slot(object)
     def _on_succeeded(self, result: object) -> None:
@@ -259,6 +269,7 @@ class CurationWindow(QMainWindow):
             )
         else:
             self.artifact_paths.setText("No artifacts written.")
+        self.results_workspace.set_result(result)
 
     @Slot(object)
     def _on_failed(self, exception: object) -> None:
@@ -273,6 +284,8 @@ class CurationWindow(QMainWindow):
         self.status_text.setText(f"Curation failed: {description}")
         self.result_summary.setText("No result was produced.")
         self.artifact_paths.setText("No artifacts reported.")
+        if isinstance(exception, Exception):
+            self.results_workspace.set_failure(exception)
 
     @Slot()
     def _on_finished(self) -> None:
@@ -289,4 +302,22 @@ class CurationWindow(QMainWindow):
             )
             event.ignore()
             return
+        thread = self.results_workspace._thumbnail_loader.worker_thread
+        try:
+            running = thread.isRunning()
+        except RuntimeError:
+            running = False
+        if running:
+            self._close_after_thumbnail_shutdown = True
+            self.status_text.setText("Closing after thumbnail cleanup.")
+            self.results_workspace.shutdown_thumbnails()
+            event.ignore()
+            return
         event.accept()
+
+    @Slot()
+    def _on_thumbnail_loader_stopped(self) -> None:
+        """Retry deferred idle close after thumbnail cleanup."""
+        if self._close_after_thumbnail_shutdown:
+            self._close_after_thumbnail_shutdown = False
+            QTimer.singleShot(0, self.close)

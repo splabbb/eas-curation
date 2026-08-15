@@ -30,6 +30,12 @@ def test_create_main_window_is_functional(qtbot: Any) -> None:
     assert window.objectName() == "easCurationWindow"
     assert window.windowTitle() == gui_app.WINDOW_TITLE
 
+    with qtbot.waitSignal(
+        window.results_workspace._thumbnail_loader.stopped,
+        timeout=3000,
+    ):
+        assert window.close() is False
+
 
 def test_main_shows_window_and_returns_event_loop_exit_code(
     qapp: QApplication,
