@@ -6,14 +6,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QKeySequence
+from PIL import Image
+from PySide6.QtCore import QThread, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QImage, QKeySequence, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLabel, QPushButton
 
 from eas.application import CurationRunResult
 from eas.clustering import ExactDuplicateGroup, ExactDuplicateReport
 from eas.gui.results import CurationResultsWidget
+from eas.gui.thumbnails import ThumbnailRequest, ThumbnailResult
 from eas.integrity import (
     FindingCode,
     IntegrityFinding,
@@ -25,11 +27,22 @@ from eas.vision import QualityMetrics
 
 @pytest.fixture
 def widget(qtbot: Any) -> CurationResultsWidget:
-    """Create a visible results workspace."""
+    """Create a visible results workspace with orderly loader cleanup."""
     created = CurationResultsWidget()
     qtbot.addWidget(created)
     created.show()
-    return created
+    yield created
+    thread = created._thumbnail_loader.worker_thread
+    if thread.isRunning():
+        created.shutdown_thumbnails()
+
+        def thread_stopped_or_deleted() -> bool:
+            try:
+                return not thread.isRunning()
+            except RuntimeError:
+                return True
+
+        qtbot.waitUntil(thread_stopped_or_deleted, timeout=3000)
 
 
 def test_public_states_and_clear(widget: CurationResultsWidget) -> None:
@@ -478,6 +491,158 @@ def test_output_folder_open_reports_api_result(
     assert len(calls) == 1
     assert calls[0].toLocalFile() == str(tmp_path)
     assert widget.open_status_label.text() == f"{prefix}{tmp_path}"
+
+
+def test_thumbnail_placeholder_then_successful_icon_replacement(
+    widget: CurationResultsWidget,
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "preview.png"
+    Image.new("RGB", (80, 40), "red").save(path)
+    result = _result(tmp_path, selected=(_image(path, 0.8, True, 0.1),))
+
+    widget.set_result(result)
+    initial_cache_key = widget.contact_sheet.item(0).icon().cacheKey()
+
+    qtbot.waitUntil(
+        lambda: widget.contact_sheet.item(0).icon().cacheKey() != initial_cache_key,
+        timeout=3000,
+    )
+    assert widget.result is result
+    assert widget.contact_sheet.item(0).text() == "1. preview.png\n0.800"
+
+
+def test_thumbnail_failure_keeps_successful_result_and_order(
+    widget: CurationResultsWidget,
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    missing = _image(tmp_path / "missing.jpg", 0.8, True, 0.1)
+    present_path = tmp_path / "present.png"
+    Image.new("RGB", (20, 20), "blue").save(present_path)
+    present = _image(present_path, 0.7, True, 0.2)
+    result = _result(tmp_path, selected=(missing, present))
+
+    widget.set_result(result)
+    qtbot.waitUntil(
+        lambda: "Thumbnail unavailable:" in widget.contact_sheet.item(0).toolTip(),
+        timeout=3000,
+    )
+    qtbot.waitUntil(
+        lambda: widget._thumbnail_loader.is_busy is False
+        and not widget._thumbnail_pending,
+        timeout=3000,
+    )
+
+    assert widget.result is result
+    assert [widget.contact_sheet.item(i).text() for i in range(2)] == [
+        "1. missing.jpg\n0.800",
+        "2. present.png\n0.700",
+    ]
+    assert widget.state_label.text() == "Run completed."
+
+
+def test_thumbnail_queue_dispatches_exactly_one_request(
+    widget: CurationResultsWidget,
+    tmp_path: Path,
+) -> None:
+    selected = tuple(
+        _image(tmp_path / f"missing-{index}.jpg", 0.8 - index / 10, True, 0.1)
+        for index in range(3)
+    )
+    widget.set_result(_result(tmp_path, selected=selected))
+    assert widget._thumbnail_loader.is_busy is True
+    assert len(widget._thumbnail_pending) == 2
+
+
+def test_stale_generation_and_path_results_are_ignored(
+    widget: CurationResultsWidget,
+    tmp_path: Path,
+) -> None:
+    current_path = tmp_path / "current.jpg"
+    current = _image(current_path, 0.8, True, 0.1)
+    widget.set_result(_result(tmp_path, selected=(current,)))
+    item = widget.contact_sheet.item(0)
+    initial_key = item.icon().cacheKey()
+    image = QImage(10, 10, QImage.Format.Format_RGB32)
+    image.fill(Qt.GlobalColor.red)
+
+    old_request = ThumbnailRequest(
+        str(current_path), 160, 120, widget._thumbnail_generation - 1
+    )
+    widget._on_thumbnail_loaded(ThumbnailResult(old_request, image, None, False))
+    assert item.icon().cacheKey() == initial_key
+
+    other_request = ThumbnailRequest(
+        str(tmp_path / "other.jpg"), 160, 120, widget._thumbnail_generation
+    )
+    widget._on_thumbnail_loaded(ThumbnailResult(other_request, image, None, False))
+    assert item.icon().cacheKey() == initial_key
+
+
+def test_thumbnail_completion_preserves_current_detail_selection(
+    widget: CurationResultsWidget,
+    tmp_path: Path,
+) -> None:
+    first = _image(tmp_path / "first.jpg", 0.8, True, 0.1)
+    second = _image(tmp_path / "second.jpg", 0.7, True, 0.2)
+    widget.set_result(_result(tmp_path, selected=(first, second)))
+    widget.contact_sheet.setCurrentRow(1)
+    image = QImage(10, 10, QImage.Format.Format_RGB32)
+    image.fill(Qt.GlobalColor.blue)
+    request = ThumbnailRequest(
+        first.path, 160, 120, widget._thumbnail_generation
+    )
+
+    widget._on_thumbnail_loaded(ThumbnailResult(request, image, None, False))
+
+    assert widget.contact_sheet.currentRow() == 1
+    assert widget._detail_labels["filename"].text() == "second.jpg"
+
+
+def test_non_result_state_invalidates_thumbnail_work(
+    widget: CurationResultsWidget,
+    tmp_path: Path,
+) -> None:
+    widget.set_result(_result(tmp_path))
+    previous_generation = widget._thumbnail_generation
+    widget.set_running_state()
+    assert widget._thumbnail_generation == previous_generation + 1
+    assert not widget._thumbnail_pending
+    assert not widget._thumbnail_paths
+
+
+def test_qpixmap_creation_receiver_runs_on_gui_thread(
+    widget: CurationResultsWidget,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "current.jpg"
+    widget.set_result(_result(tmp_path, selected=(_image(path, 0.8, True, 0.1),)))
+    threads: list[QThread] = []
+    original = QPixmap.fromImage
+
+    def from_image(image: QImage, *args: Any, **kwargs: Any) -> QPixmap:
+        threads.append(QThread.currentThread())
+        return original(image, *args, **kwargs)
+
+    monkeypatch.setattr(QPixmap, "fromImage", from_image)
+    image = QImage(10, 10, QImage.Format.Format_RGB32)
+    image.fill(Qt.GlobalColor.green)
+    request = ThumbnailRequest(path.as_posix(), 160, 120, widget._thumbnail_generation)
+    widget._on_thumbnail_loaded(ThumbnailResult(request, image, None, False))
+    assert threads == [widget.thread()]
+
+
+def test_thumbnail_shutdown_is_exposed_and_idempotent(
+    widget: CurationResultsWidget,
+    qtbot: Any,
+) -> None:
+    with qtbot.waitSignal(widget._thumbnail_loader.stopped, timeout=3000):
+        widget.shutdown_thumbnails()
+        widget.shutdown_thumbnails()
+    assert widget._thumbnail_loader.worker_thread.isFinished() is True
 
 def _image(
     path: Path,

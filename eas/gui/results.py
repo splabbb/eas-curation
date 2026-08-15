@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Slot
-from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFormLayout,
@@ -27,9 +27,12 @@ from eas.application import CurationRunResult
 from eas.clustering import ExactDuplicateGroup, ExactDuplicateReport
 from eas.integrity import IntegrityReport
 from eas.pipeline import ImageResult
+from eas.gui.thumbnails import ThumbnailLoader, ThumbnailRequest, ThumbnailResult
 
 _PATH_ROLE = Qt.ItemDataRole.UserRole
 _RANK_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+THUMBNAIL_WIDTH = 160
+THUMBNAIL_HEIGHT = 120
 
 
 class CurationResultsWidget(QWidget):
@@ -42,6 +45,11 @@ class CurationResultsWidget(QWidget):
         self.setAccessibleName("Curation results")
         self._result: CurationRunResult | None = None
         self._artifact_buttons: list[QPushButton] = []
+        self._thumbnail_generation = 0
+        self._thumbnail_pending: deque[ThumbnailRequest] = deque()
+        self._thumbnail_paths: set[str] = set()
+        self._thumbnail_loader = ThumbnailLoader(self)
+        self._thumbnail_loader.loaded.connect(self._on_thumbnail_loaded)
         self._build_ui()
         self.clear()
 
@@ -193,6 +201,7 @@ class CurationResultsWidget(QWidget):
             f"Selected: {result.selected_count}"
         )
         self._configure_output_action(result.output_dir, result.dry_run)
+        self._queue_thumbnails(result.selected_results)
 
     def set_empty_state(self, message: str) -> None:
         """Show a caller-supplied empty-state message."""
@@ -228,6 +237,7 @@ class CurationResultsWidget(QWidget):
 
     def _reset_content(self) -> None:
         """Clear result-derived controls without touching source objects."""
+        self._invalidate_thumbnails()
         self.counts_label.clear()
         self.contact_sheet.clear()
         for label in self._detail_labels.values():
@@ -267,6 +277,93 @@ class CurationResultsWidget(QWidget):
             item.setData(_RANK_ROLE, rank)
             self.contact_sheet.addItem(item)
         self.contact_sheet.setCurrentRow(0)
+
+    def _invalidate_thumbnails(self) -> None:
+        """Invalidate queued and cached presentation for the previous state."""
+        self._thumbnail_generation += 1
+        self._thumbnail_pending.clear()
+        self._thumbnail_paths.clear()
+        self._thumbnail_loader.clear_cache()
+
+    def _queue_thumbnails(
+        self,
+        selected_results: tuple[ImageResult, ...],
+    ) -> None:
+        """Queue thumbnail requests in authoritative result order."""
+        self._thumbnail_paths = {
+            self._normalized_path(str(result.path))
+            for result in selected_results
+        }
+        self._thumbnail_pending.extend(
+            ThumbnailRequest(
+                path=str(result.path),
+                width=THUMBNAIL_WIDTH,
+                height=THUMBNAIL_HEIGHT,
+                generation=self._thumbnail_generation,
+            )
+            for result in selected_results
+        )
+        self._dispatch_next_thumbnail()
+
+    def _dispatch_next_thumbnail(self) -> None:
+        """Dispatch the next request only while the loader is idle."""
+        if self._thumbnail_loader.is_busy or self._thumbnail_loader.is_stopping:
+            return
+        while self._thumbnail_pending:
+            request = self._thumbnail_pending.popleft()
+            if request.generation != self._thumbnail_generation:
+                continue
+            if self._thumbnail_loader.load(request):
+                return
+
+    @Slot(object)
+    def _on_thumbnail_loaded(self, value: object) -> None:
+        """Apply one current thumbnail result on the GUI thread."""
+        if not isinstance(value, ThumbnailResult):
+            return
+        request = value.request
+        normalized = self._normalized_path(request.path)
+        is_current = (
+            request.generation == self._thumbnail_generation
+            and normalized in self._thumbnail_paths
+        )
+        if is_current:
+            item = self._item_for_path(normalized)
+            if item is not None:
+                if value.image is not None:
+                    item.setIcon(QPixmap.fromImage(value.image))
+                else:
+                    item.setIcon(
+                        self.style().standardIcon(
+                            QStyle.StandardPixmap.SP_MessageBoxWarning
+                        )
+                    )
+                    message = value.error or "Thumbnail unavailable."
+                    item.setToolTip(f"{request.path}\nThumbnail unavailable: {message}")
+        else:
+            self._thumbnail_loader.clear_cache()
+        self._dispatch_next_thumbnail()
+
+    def _item_for_path(self, normalized_path: str) -> QListWidgetItem | None:
+        """Return the current contact-sheet item for a normalized path."""
+        for index in range(self.contact_sheet.count()):
+            item = self.contact_sheet.item(index)
+            path = item.data(_PATH_ROLE)
+            if isinstance(path, str) and self._normalized_path(path) == normalized_path:
+                return item
+        return None
+
+    @staticmethod
+    def _normalized_path(path: str) -> str:
+        """Return a stable absolute path for thumbnail identity checks."""
+        return str(Path(path).expanduser().resolve(strict=False))
+
+    def shutdown_thumbnails(self) -> None:
+        """Begin orderly, idempotent thumbnail-loader shutdown."""
+        self._thumbnail_generation += 1
+        self._thumbnail_pending.clear()
+        self._thumbnail_paths.clear()
+        self._thumbnail_loader.shutdown()
 
     @Slot(int)
     def _show_selected_details(self, row: int) -> None:
@@ -446,4 +543,4 @@ class CurationResultsWidget(QWidget):
             )
 
 
-__all__ = ["CurationResultsWidget"]
+__all__ = ["CurationResultsWidget", "THUMBNAIL_HEIGHT", "THUMBNAIL_WIDTH"]
