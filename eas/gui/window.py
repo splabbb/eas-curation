@@ -119,16 +119,6 @@ class CurationWindow(QMainWindow):
         self.status_text.setObjectName("statusText")
         layout.addWidget(self.status_text)
 
-        self.result_summary = QLabel("No run completed.")
-        self.result_summary.setObjectName("resultSummary")
-        self.result_summary.setWordWrap(True)
-        layout.addWidget(self.result_summary)
-
-        self.artifact_paths = QLabel("No artifacts written.")
-        self.artifact_paths.setObjectName("artifactPaths")
-        self.artifact_paths.setWordWrap(True)
-        self.result_summary.setVisible(False)
-        self.artifact_paths.setVisible(False)
         self.results_workspace = CurationResultsWidget(self)
         self.results_workspace.setObjectName("windowResultsWorkspace")
         self.results_workspace.setAccessibleName("Curation results workspace")
@@ -241,8 +231,6 @@ class CurationWindow(QMainWindow):
             control.setEnabled(False)
         self.busy_indicator.setVisible(True)
         self.status_text.setText("Curation is running.")
-        self.result_summary.setText("Awaiting results.")
-        self.artifact_paths.setText("No artifacts reported yet.")
         self.results_workspace.set_running_state()
 
     @Slot(object)
@@ -254,21 +242,7 @@ class CurationWindow(QMainWindow):
             )
             return
 
-        failed_count = len(result.failed_analysis_paths)
         self.status_text.setText("Curation completed.")
-        self.result_summary.setText(
-            f"Discovered: {result.discovered_count} | "
-            f"Analyzed: {result.analyzed_count} | "
-            f"Failed analysis: {failed_count} | "
-            f"Selected: {result.selected_count}"
-        )
-        if result.written_artifacts:
-            self.artifact_paths.setText(
-                "Written artifacts:\n"
-                + "\n".join(result.written_artifacts)
-            )
-        else:
-            self.artifact_paths.setText("No artifacts written.")
         self.results_workspace.set_result(result)
 
     @Slot(object)
@@ -282,8 +256,6 @@ class CurationWindow(QMainWindow):
         else:
             description = f"Unexpected failure value: {exception!r}"
         self.status_text.setText(f"Curation failed: {description}")
-        self.result_summary.setText("No result was produced.")
-        self.artifact_paths.setText("No artifacts reported.")
         if isinstance(exception, Exception):
             self.results_workspace.set_failure(exception)
 

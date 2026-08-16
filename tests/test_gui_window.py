@@ -152,6 +152,32 @@ def test_busy_indicator_tracks_active_lifecycle(
     assert created.run_button.isEnabled() is True
 
 
+def test_legacy_result_widgets_are_removed(
+    window: tuple[CurationWindow, FakeController],
+) -> None:
+    created, _ = window
+
+    assert not hasattr(created, "result_summary")
+    assert not hasattr(created, "artifact_paths")
+
+
+def test_starting_new_run_clears_previous_result(
+    window: tuple[CurationWindow, FakeController],
+) -> None:
+    created, controller = window
+
+    created.run_button.click()
+    controller.succeed(_result(dry_run=False))
+    controller.finish()
+    assert created.results_workspace.result is not None
+
+    created.run_button.click()
+
+    assert created.results_workspace.result is None
+    assert created.status_text.text() == "Curation is running."
+    controller.finish()
+
+
 def test_controls_restore_only_after_finished(
     window: tuple[CurationWindow, FakeController],
 ) -> None:
